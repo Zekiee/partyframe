@@ -1,204 +1,74 @@
-package log
+package logger
 
 import (
-	"fmt"
-	"github.com/dobyte/due/mode"
-	"io"
+	"go-micro.dev/v4/logger"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"os"
-	"sync"
+
+	logger_zap "github.com/go-micro/plugins/v4/logger/zap"
 )
 
-type Logger interface {
-	// Debug 打印调试日志
-	Debug(a ...interface{})
-	// Debugf 打印调试模板日志
-	Debugf(format string, a ...interface{})
-	// Info 打印信息日志
-	Info(a ...interface{})
-	// Infof 打印信息模板日志
-	Infof(format string, a ...interface{})
-	// Warn 打印警告日志
-	Warn(a ...interface{})
-	// Warnf 打印警告模板日志
-	Warnf(format string, a ...interface{})
-	// Error 打印错误日志
-	Error(a ...interface{})
-	// Errorf 打印错误模板日志
-	Errorf(format string, a ...interface{})
-	// Fatal 打印致命错误日志
-	Fatal(a ...interface{})
-	// Fatalf 打印致命错误模板日志
-	Fatalf(format string, a ...interface{})
-	// Panic 打印Panic日志
-	Panic(a ...interface{})
-	// Panicf 打印Panic模板日志
-	Panicf(format string, a ...interface{})
+func init() {
+	enc := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+	w := zapcore.AddSync(os.Stdout)
+	core := zapcore.NewCore(enc, w, zapcore.ErrorLevel)
+	zapLogger := zap.New(core)
+	logger.DefaultLogger, _ = logger_zap.NewLogger(logger.WithLevel(logger.InfoLevel), logger_zap.WithLogger(zapLogger))
 }
 
-type defaultLogger struct {
-	opts       *options
-	formatter  formatter
-	syncers    []syncer
-	bufferPool sync.Pool
-	entityPool *EntityPool
+func Print(args ...interface{}) {
+	Info(args)
 }
 
-type enabler func(level Level) bool
-
-type formatter interface {
-	format(e *Entity, isTerminal bool) []byte
+func Printf(template string, args ...interface{}) {
+	Infof(template, args)
 }
 
-type syncer struct {
-	writer   io.Writer
-	terminal bool
-	enabler  enabler
+func Info(args ...interface{}) {
+	logger.Info(args...)
 }
 
-var _ Logger = &defaultLogger{}
-
-func NewLogger(opts ...Option) *defaultLogger {
-	o := defaultOptions()
-	for _, opt := range opts {
-		opt(o)
-	}
-
-	l := &defaultLogger{}
-	l.opts = o
-	l.syncers = make([]syncer, 0, 7)
-	l.entityPool = newEntityPool(l)
-
-	switch l.opts.format {
-	case TextFormat:
-		l.formatter = newTextFormatter()
-	case JsonFormat:
-		l.formatter = newJsonFormatter()
-	}
-
-	if o.file != "" {
-		if o.classifiedStorage {
-			l.syncers = append(l.syncers, syncer{
-				writer:  l.buildWriter(DebugLevel),
-				enabler: l.buildEnabler(DebugLevel),
-			}, syncer{
-				writer:  l.buildWriter(InfoLevel),
-				enabler: l.buildEnabler(InfoLevel),
-			}, syncer{
-				writer:  l.buildWriter(WarnLevel),
-				enabler: l.buildEnabler(WarnLevel),
-			}, syncer{
-				writer:  l.buildWriter(ErrorLevel),
-				enabler: l.buildEnabler(ErrorLevel),
-			}, syncer{
-				writer:  l.buildWriter(FatalLevel),
-				enabler: l.buildEnabler(FatalLevel),
-			}, syncer{
-				writer:  l.buildWriter(PanicLevel),
-				enabler: l.buildEnabler(PanicLevel),
-			})
-		} else {
-			l.syncers = append(l.syncers, syncer{
-				writer:  l.buildWriter(NoneLevel),
-				enabler: l.buildEnabler(NoneLevel),
-			})
-		}
-	}
-
-	if mode.IsDebugMode() && o.stdout {
-		l.syncers = append(l.syncers, syncer{
-			writer:   os.Stdout,
-			terminal: true,
-			enabler:  l.buildEnabler(NoneLevel),
-		})
-	}
-
-	return l
+func Infof(template string, args ...interface{}) {
+	logger.Infof(template, args...)
 }
 
-func (l *defaultLogger) buildWriter(level Level) io.Writer {
-	w, err := NewWriter(WriterOptions{
-		Path:    l.opts.file,
-		Level:   level,
-		MaxAge:  l.opts.fileMaxAge,
-		MaxSize: l.opts.fileMaxSize * 1024 * 1024,
-		CutRule: l.opts.fileCutRule,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	return w
+func Trace(args ...interface{}) {
+	logger.Trace(args...)
 }
 
-func (l *defaultLogger) buildEnabler(level Level) enabler {
-	return func(lvl Level) bool {
-		return lvl >= l.opts.level && (level == NoneLevel || (lvl >= level && level >= l.opts.level))
-	}
+func Tracef(template string, args ...interface{}) {
+	logger.Tracef(template, args...)
 }
 
-// Entity 构建日志实体
-func (l *defaultLogger) Entity(level Level, a ...interface{}) *Entity {
-	return l.entityPool.build(level, a...)
+func Debug(args ...interface{}) {
+	logger.Debug(args...)
 }
 
-// Debug 打印调试日志
-func (l *defaultLogger) Debug(a ...interface{}) {
-	l.Entity(DebugLevel, a...).Log()
+func Debugf(template string, args ...interface{}) {
+	logger.Debugf(template, args...)
 }
 
-// Debugf 打印调试模板日志
-func (l *defaultLogger) Debugf(format string, a ...interface{}) {
-	l.Entity(DebugLevel, fmt.Sprintf(format, a...)).Log()
+func Warn(args ...interface{}) {
+	logger.Warn(args...)
 }
 
-// Info 打印信息日志
-func (l *defaultLogger) Info(a ...interface{}) {
-	l.Entity(InfoLevel, a...).Log()
+func Warnf(template string, args ...interface{}) {
+	logger.Warnf(template, args...)
 }
 
-// Infof 打印信息模板日志
-func (l *defaultLogger) Infof(format string, a ...interface{}) {
-	l.Entity(InfoLevel, fmt.Sprintf(format, a...)).Log()
+func Error(args ...interface{}) {
+	logger.Error(args...)
 }
 
-// Warn 打印警告日志
-func (l *defaultLogger) Warn(a ...interface{}) {
-	l.Entity(WarnLevel, a...).Log()
+func Errorf(template string, args ...interface{}) {
+	logger.Errorf(template, args...)
 }
 
-// Warnf 打印警告模板日志
-func (l *defaultLogger) Warnf(format string, a ...interface{}) {
-	l.Entity(WarnLevel, fmt.Sprintf(format, a...)).Log()
+func Fatal(args ...interface{}) {
+	logger.Fatal(args...)
 }
 
-// Error 打印错误日志
-func (l *defaultLogger) Error(a ...interface{}) {
-	l.Entity(ErrorLevel, a...).Log()
-}
-
-// Errorf 打印错误模板日志
-func (l *defaultLogger) Errorf(format string, a ...interface{}) {
-	l.Entity(ErrorLevel, fmt.Sprintf(format, a...)).Log()
-}
-
-// Fatal 打印致命错误日志
-func (l *defaultLogger) Fatal(a ...interface{}) {
-	l.Entity(FatalLevel, a...).Log()
-	os.Exit(1)
-}
-
-// Fatalf 打印致命错误模板日志
-func (l *defaultLogger) Fatalf(format string, a ...interface{}) {
-	l.Entity(FatalLevel, fmt.Sprintf(format, a...)).Log()
-	os.Exit(1)
-}
-
-// Panic 打印Panic日志
-func (l *defaultLogger) Panic(a ...interface{}) {
-	l.Entity(PanicLevel, a...).Log()
-}
-
-// Panicf 打印Panic模板日志
-func (l *defaultLogger) Panicf(format string, a ...interface{}) {
-	l.Entity(PanicLevel, fmt.Sprintf(format, a...)).Log()
+func Fatalf(template string, args ...interface{}) {
+	logger.Fatalf(template, args...)
 }
